@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
 
-  const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:9091';
+  const apiBase = import.meta.env.VITE_API_BASE ?? '';
 
   const defaults = {
     ssh_port: 22,

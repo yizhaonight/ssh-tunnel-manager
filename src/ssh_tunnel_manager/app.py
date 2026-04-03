@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api import build_router
 from .runtime import TunnelRuntime
 from .services import TunnelService
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 
 def create_app() -> FastAPI:
@@ -42,6 +47,19 @@ def create_app() -> FastAPI:
         await service.shutdown()
 
     app.include_router(build_router(service))
+
+    if FRONTEND_DIR.is_dir():
+        @app.get("/", include_in_schema=False)
+        @app.get("/dashboard", include_in_schema=False)
+        async def dashboard_redirect():
+            return RedirectResponse(url="/dashboard/")
+
+        app.mount(
+            "/dashboard",
+            StaticFiles(directory=FRONTEND_DIR, html=True),
+            name="dashboard",
+        )
+
     return app
 
 
