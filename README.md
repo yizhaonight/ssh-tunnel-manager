@@ -35,11 +35,12 @@ uv run main.py
 
 Open **http://localhost:8100/dashboard** to access the web UI.
 
-### Options
+### Configuration
 
-```
---port PORT    Server port (default: 8100)
-```
+| Source | Description |
+|---|---|
+| `PORT` env var | Server port (default: `8100`) |
+| `--port` flag | Overrides `PORT` env var |
 
 ### Alternative install (without uv)
 
@@ -103,6 +104,8 @@ The built frontend is committed to `frontend/dist/` and served by the backend au
 ```bash
 cd frontend
 npm install
-VITE_API_BASE=http://localhost:8100 npm run dev   # dev server with hot reload
-npm run build                                      # rebuild dist/
+npm run dev     # dev server with hot reload, proxies /api to backend
+npm run build   # rebuild dist/
 ```
+
+The Vite dev server reads the `PORT` env var (default `8100`) and proxies `/api` requests to the backend automatically.
