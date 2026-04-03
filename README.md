@@ -1,147 +1,108 @@
 # SSH Tunnel Manager
 
-SSH Tunnel Manager is a small FastAPI service with a Svelte frontend for creating, starting, stopping, and monitoring SSH port-forwarding tunnels.
+A lightweight self-hosted service for managing SSH port-forwarding tunnels through a web dashboard.
 
-It is built for long-running local use:
+Manage all your `ssh -L` and `ssh -R` tunnels from one place — create, start, stop, and monitor them without touching the terminal.
 
-- manage multiple `ssh -L` and `ssh -R` tunnels from one UI
-- persist tunnel definitions in `config.json`
-- auto-start enabled tunnels on service startup
-- restart failed tunnels with backoff
-- actively probe local forwarded ports to catch tunnels that look alive but are no longer reachable
+## Features
 
-## What It Manages
-
-Each tunnel definition includes:
-
-- local or reverse forwarding mode
-- SSH destination by host alias or explicit host/user/port
-- local port, remote host, and remote port
-- optional identity file
-- optional SSH keepalive interval
-- optional compression
-- whether the local bind should be exposed to LAN
-- whether the manager should keep the tunnel running
-
-The backend shells out to the system `ssh` binary. This project does not implement SSH itself.
-
-## Architecture
-
-- Root entrypoint: [main.py](/Users/yizhao/home/projects/python/ssh-tunnel-manager/main.py)
-- Backend package: [src/ssh_tunnel_manager/app.py](/Users/yizhao/home/projects/python/ssh-tunnel-manager/src/ssh_tunnel_manager/app.py)
-- Tunnel models: [src/ssh_tunnel_manager/models.py](/Users/yizhao/home/projects/python/ssh-tunnel-manager/src/ssh_tunnel_manager/models.py)
-- Config persistence: [src/ssh_tunnel_manager/store.py](/Users/yizhao/home/projects/python/ssh-tunnel-manager/src/ssh_tunnel_manager/store.py)
-- Frontend: [frontend/src/App.svelte](/Users/yizhao/home/projects/python/ssh-tunnel-manager/frontend/src/App.svelte)
+- **Local & reverse forwarding** — supports both `ssh -L` and `ssh -R` modes
+- **Web dashboard** — built-in UI at `/dashboard`, no separate frontend server needed
+- **Persistent config** — tunnel definitions are saved to `config.json` and survive restarts
+- **Auto-start** — enabled tunnels start automatically when the service launches
+- **Health monitoring** — probes forwarded ports every 10s and restarts failed tunnels with exponential backoff
+- **SSH config support** — use `~/.ssh/config` Host aliases or specify host/user/port directly
+- **REST API** — fully documented API for scripting and automation (see [API.md](API.md))
 
 ## Requirements
 
 - Python 3.13+
-- Node.js and npm
-- OpenSSH client available as `ssh`
+- OpenSSH client (`ssh` on PATH)
 
-## Installation
+> Node.js is only needed if you want to modify the frontend. The built dashboard is included in the repo.
 
-### Backend
-
-Using `uv`:
+## Quick Start
 
 ```bash
+# Clone and install
+git clone https://github.com/yizhaonight/ssh-tunnel-manager.git
+cd ssh-tunnel-manager
 uv sync
+
+# Start the service
+uv run main.py
 ```
 
-Or using `venv` and `pip`:
+Open **http://localhost:8100/dashboard** to access the web UI.
+
+### Options
+
+```
+--port PORT    Server port (default: 8100)
+```
+
+### Alternative install (without uv)
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip
 pip install fastapi pydantic uvicorn
+python3 main.py
 ```
 
-### Frontend
+## Usage
+
+### Web Dashboard
+
+The dashboard lets you:
+
+- Create and edit tunnel configurations
+- Start/stop individual tunnels or start all at once
+- See live status — running, reachable, degraded, or errored
+- View error details and retry counts inline
+
+### SSH Target Configuration
+
+You can specify the SSH endpoint in two ways:
+
+| Method | Fields used |
+|---|---|
+| **Host alias** | `ssh_host_alias` (from `~/.ssh/config`) — all other SSH fields are ignored |
+| **Direct** | `ssh_host`, `ssh_user`, `ssh_port`, `identity_file` |
+
+### Health Checks
+
+For **local** tunnels, the service actively probes the forwarded port every 10 seconds. If the port stops accepting TCP connections, the tunnel is killed and restarted with backoff. After 5 consecutive failures, the tunnel enters an error state until manually restarted or updated.
+
+For **reverse** tunnels, the service monitors the SSH process but does not probe the remote port.
+
+All SSH tunnels are started with `ExitOnForwardFailure=yes` to avoid treating failed forwards as healthy connections.
+
+## API
+
+The service exposes a REST API under `/api`. See [API.md](API.md) for full endpoint documentation.
+
+Quick reference:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/tunnels` | List all tunnels |
+| `POST` | `/api/tunnels` | Create a tunnel |
+| `GET` | `/api/tunnels/{id}` | Get tunnel by ID |
+| `PUT` | `/api/tunnels/{id}` | Replace tunnel |
+| `PATCH` | `/api/tunnels/{id}` | Partial update |
+| `DELETE` | `/api/tunnels/{id}` | Delete tunnel |
+| `POST` | `/api/tunnels/{id}/start` | Start tunnel |
+| `POST` | `/api/tunnels/{id}/stop` | Stop tunnel |
+| `GET` | `/api/tunnel-status` | Status of all tunnels |
+
+## Frontend Development
+
+The built frontend is committed to `frontend/dist/` and served by the backend automatically. To make frontend changes:
 
 ```bash
 cd frontend
 npm install
+VITE_API_BASE=http://localhost:8100 npm run dev   # dev server with hot reload
+npm run build                                      # rebuild dist/
 ```
-
-## Running
-
-### Start the backend
-
-```bash
-uv run main.py --port 8100
-```
-
-Or:
-
-```bash
-python3 main.py --port 8100
-```
-
-The backend listens on `0.0.0.0` and defaults to port `8100`.
-
-### Start the frontend in development
-
-```bash
-cd frontend
-npm run dev
-```
-
-The frontend uses `VITE_API_BASE` to find the backend. If unset, it defaults to:
-
-```text
-http://localhost:9091
-```
-
-If your backend is running on `8100`, start the frontend like this:
-
-```bash
-cd frontend
-VITE_API_BASE=http://localhost:8100 npm run dev
-```
-
-### Build the frontend
-
-```bash
-cd frontend
-npm run build
-```
-
-### SSH Target Rules
-
-You can configure the SSH endpoint in one of two ways:
-
-- `ssh_host_alias`: use a `Host` entry from `~/.ssh/config`
-- `ssh_host` plus `ssh_user`: connect directly without an alias
-
-When `ssh_host_alias` is set, the backend ignores:
-
-- `ssh_host`
-- `ssh_user`
-- `ssh_port`
-- `identity_file`
-
-## Health Checks and Recovery
-
-The manager does more than watch whether the `ssh` process is still running.
-
-For enabled local tunnels:
-
-- it probes the local forwarded port every 10 seconds
-- if the port does not accept a TCP connection, the tunnel is marked unreachable
-- unreachable tunnels are terminated and restarted with exponential backoff
-- after 5 consecutive failed restart attempts, the manager gives up and leaves the tunnel in an error state until it is started again manually or updated
-
-The backend also starts SSH with:
-
-```text
--o ExitOnForwardFailure=yes
-```
-
-This avoids treating failed forwards as healthy startups.
-
-### Reverse Tunnel Caveat
-
-Reverse tunnels are not actively probed on the remote side right now. For `reverse` mode, the manager treats the tunnel as reachable while the `ssh` process is running.
-
